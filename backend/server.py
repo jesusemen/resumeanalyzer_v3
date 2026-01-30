@@ -261,7 +261,7 @@ async def analyze_resumes(
         if not job_text:
             raise HTTPException(
                 status_code=400, 
-                detail="Could not extract text from job description"
+                detail=f"Could not extract text from job description: {job_description.filename}. Please ensure it is not a scanned image and is in a supported format."
             )
         
         # Process resumes
