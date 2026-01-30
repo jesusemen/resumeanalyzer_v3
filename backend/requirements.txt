@@ -25,5 +25,5 @@ fastapi==0.110.1
     typer>=0.9.0
     PyPDF2
     python-docx
-    bcrypt>=4.0.1
+    argon2-cffi>=23.1.0
     google-generativeai>=0.3.2
