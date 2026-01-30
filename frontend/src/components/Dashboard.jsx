@@ -36,7 +36,7 @@ const Dashboard = () => {
                 <p className="text-sm text-gray-600">AI-Powered Resume Analysis</p>
               </div>
             </div>
-            
+
             <div className="flex items-center space-x-4">
               <Button
                 onClick={handleUpgrade}
@@ -47,26 +47,8 @@ const Dashboard = () => {
                 <Crown className="w-4 h-4 mr-2" />
                 Upgrade to Premium
               </Button>
-              
-              <div className="flex items-center space-x-2">
-                <User className="w-4 h-4 text-gray-500" />
-                <span className="text-sm font-medium text-gray-700">
-                  {user?.full_name || user?.email}
-                </span>
-                <Badge variant="secondary" className="bg-green-100 text-green-800">
-                  Free
-                </Badge>
-              </div>
-              
-              <Button
-                onClick={handleLogout}
-                variant="outline"
-                size="sm"
-                className="border-gray-300 hover:bg-gray-50"
-              >
-                <LogOut className="w-4 h-4 mr-2" />
-                Logout
-              </Button>
+
+              {/* Login/Logout removed for anonymous access */}
             </div>
           </div>
         </div>

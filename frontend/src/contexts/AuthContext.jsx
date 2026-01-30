@@ -12,31 +12,31 @@ export const useAuth = () => {
 };
 
 export const AuthProvider = ({ children }) => {
-  const [user, setUser] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [token, setToken] = useState(localStorage.getItem('token'));
+  const GUEST_USER = {
+    id: "guest_user_account",
+    email: "guest@example.com",
+    full_name: "Guest User",
+    is_active: true
+  };
+
+  const [user, setUser] = useState(GUEST_USER);
+  const [loading, setLoading] = useState(false);
+  const [token, setToken] = useState(localStorage.getItem('token') || 'guest-token');
 
   const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 
   useEffect(() => {
+    // In guest mode, we don't need to fetch a real profile
+    // But we keep the authorization header for consistency
     if (token) {
       axios.defaults.headers.common['Authorization'] = `Bearer ${token}`;
-      fetchUser();
-    } else {
-      setLoading(false);
     }
+    setLoading(false);
   }, [token]);
 
   const fetchUser = async () => {
-    try {
-      const response = await axios.get(`${BACKEND_URL}/api/user/profile`);
-      setUser(response.data);
-    } catch (error) {
-      console.error('Error fetching user:', error);
-      logout();
-    } finally {
-      setLoading(false);
-    }
+    // Disabled for guest mode
+    setLoading(false);
   };
 
   const login = async (email, password) => {
