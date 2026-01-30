@@ -83,38 +83,50 @@ class StatusCheckCreate(BaseModel):
 @api_router.post("/auth/register", response_model=Token)
 async def register(user_data: UserCreate):
     """Register a new user"""
-    # Check if user already exists
-    existing_user = await db.users.find_one({"email": user_data.email})
-    if existing_user:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Email already registered"
+    try:
+        # Check if user already exists
+        existing_user = await db.users.find_one({"email": user_data.email})
+        if existing_user:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Email already registered"
+            )
+        
+        # Create new user
+        hashed_password = get_password_hash(user_data.password)
+        user_in_db = UserInDB(
+            email=user_data.email,
+            full_name=user_data.full_name,
+            hashed_password=hashed_password
         )
-    
-    # Create new user
-    hashed_password = get_password_hash(user_data.password)
-    user_in_db = UserInDB(
-        email=user_data.email,
-        full_name=user_data.full_name,
-        hashed_password=hashed_password
-    )
-    
-    # Insert user into database
-    await db.users.insert_one(user_in_db.dict())
-    
-    # Create access token
-    access_token = create_access_token(data={"sub": user_in_db.id})
-    
-    # Return token and user info
-    user_response = UserResponse(
-        id=user_in_db.id,
-        email=user_in_db.email,
-        full_name=user_in_db.full_name,
-        created_at=user_in_db.created_at,
-        is_active=user_in_db.is_active
-    )
-    
-    return Token(access_token=access_token, user=user_response)
+        
+        # Insert user into database
+        await db.users.insert_one(user_in_db.dict())
+        
+        # Create access token
+        access_token = create_access_token(data={"sub": user_in_db.id})
+        
+        # Return token and user info
+        user_response = UserResponse(
+            id=user_in_db.id,
+            email=user_in_db.email,
+            full_name=user_in_db.full_name,
+            created_at=user_in_db.created_at,
+            is_active=user_in_db.is_active
+        )
+        
+        return Token(access_token=access_token, user=user_response)
+    except HTTPException:
+        # Re-raise HTTP exceptions
+        raise
+    except Exception as e:
+        # Catch generic errors and log them
+        logging.error(f"Registration error: {str(e)}")
+        # Return the error message to the client for debugging
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Registration failed: {str(e)}"
+        )
 
 @api_router.post("/auth/login", response_model=Token)
 async def login(user_data: UserLogin):
