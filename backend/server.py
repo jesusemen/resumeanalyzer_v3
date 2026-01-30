@@ -166,6 +166,25 @@ async def get_user_profile(current_user: UserInDB = Depends(get_current_user)):
 async def root():
     return {"message": "Resume Analyzer API Ready"}
 
+@api_router.get("/health")
+async def health_check():
+    """Check database connection status"""
+    try:
+        # Ping the database
+        await client.admin.command('ping')
+        return {
+            "status": "ok",
+            "database": "connected",
+            "timestamp": datetime.utcnow().isoformat()
+        }
+    except Exception as e:
+        return {
+            "status": "error",
+            "database": "disconnected",
+            "error": str(e),
+            "timestamp": datetime.utcnow().isoformat()
+        }
+
 @api_router.post("/status", response_model=StatusCheck)
 async def create_status_check(input: StatusCheckCreate):
     status_dict = input.dict()
