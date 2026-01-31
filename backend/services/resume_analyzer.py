@@ -39,15 +39,19 @@ class ResumeAnalyzer:
              raise ValueError("GEMINI_API_KEY not configured")
 
         try:
-            # Process in batches of 10 to optimize API calls
-            batch_size = 10
+            # Process in smaller batches of 5 to avoid hitting token/request limits
+            batch_size = 5
             all_results = []
             
             for i in range(0, len(resumes), batch_size):
                 batch = resumes[i:i+batch_size]
                 logger.info(f"Processing batch {i//batch_size + 1} with {len(batch)} resumes")
                 
-                batch_results = await self._analyze_single_batch(job_description, batch)
+                # Add a small delay between batches to stay under RPM limits
+                if i > 0:
+                    await asyncio.sleep(2)
+                
+                batch_results = await self._analyze_single_batch_with_retry(job_description, batch)
                 all_results.extend(batch_results)
             
             # Sort all results by score and take top 7
@@ -58,8 +62,8 @@ class ResumeAnalyzer:
             for idx, result in enumerate(top_7):
                 result['rank'] = idx + 1
             
-            # Check if we have any matches (threshold: 50%)
-            has_matches = any(result['score'] >= 50 for result in top_7)
+            # Check if we have any matches (threshold: 40% for better feedback)
+            has_matches = any(result['score'] >= 40 for result in top_7)
             
             return {
                 'candidates': top_7,
@@ -72,21 +76,47 @@ class ResumeAnalyzer:
             logger.error(f"Error analyzing resumes: {e}")
             raise
     
+    async def _analyze_single_batch_with_retry(self, job_description: str, batch: List[Dict[str, str]], retries: int = 3) -> List[Dict[str, Any]]:
+        """Analyze a single batch with exponential backoff retry for 429 errors"""
+        for attempt in range(retries):
+            try:
+                model = self._create_chat_session()
+                prompt = self._create_batch_prompt(job_description, batch)
+                
+                # Generate content (async)
+                response = await model.generate_content_async(prompt)
+                
+                if not response.text:
+                    raise ValueError("Empty response from AI")
+                    
+                return self._parse_batch_response(response.text, batch)
+                
+            except Exception as e:
+                # Check for quota error (429)
+                if "429" in str(e) and attempt < retries - 1:
+                    wait_time = (2 ** attempt) * 5 # 5s, 10s backoff
+                    logger.warning(f"Quota hit (429), retrying in {wait_time}s (Attempt {attempt + 1}/{retries})")
+                    await asyncio.sleep(wait_time)
+                    continue
+                
+                logger.error(f"Failed to analyze batch on attempt {attempt + 1}: {e}")
+                if attempt == retries - 1:
+                    # Final attempt failed
+                    return [
+                        {
+                            'name': r.get('name', 'Unknown'),
+                            'email': r.get('email', ''),
+                            'phone': r.get('phone', ''),
+                            'score': 0,
+                            'reasons': [f"Analysis failed after {retries} attempts: {str(e)[:100]}"]
+                        }
+                        for r in batch
+                    ]
+        return []
+
     async def _analyze_single_batch(self, job_description: str, batch: List[Dict[str, str]]) -> List[Dict[str, Any]]:
-        """Analyze a single batch of resumes"""
-        model = self._create_chat_session()
-        
-        # Create optimized prompt for batch processing
-        prompt = self._create_batch_prompt(job_description, batch)
-        
-        # Generate content (async)
-        # Note: generic 'generate_content_async' might need to be run in executor if not natively async in the version installed, 
-        # but 0.3.2+ supports async via `generate_content_async` usually, or we wrap it.
-        # Checking google-generativeai docs, `generate_content_async` is available.
-        response = await model.generate_content_async(prompt)
-        
-        # Parse the response
-        return self._parse_batch_response(response.text, batch)
+        # This is now handled by _analyze_single_batch_with_retry
+        return await self._analyze_single_batch_with_retry(job_description, batch)
     
     def _create_batch_prompt(self, job_description: str, batch: List[Dict[str, str]]) -> str:
         """Create an optimized prompt for batch processing"""
