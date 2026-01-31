@@ -39,17 +39,18 @@ class ResumeAnalyzer:
              raise ValueError("GEMINI_API_KEY not configured")
 
         try:
-            # Process in smaller batches of 5 to avoid hitting token/request limits
-            batch_size = 5
+            # Aggressively small batches for free tier (3 resumes per call)
+            batch_size = 3
             all_results = []
             
             for i in range(0, len(resumes), batch_size):
                 batch = resumes[i:i+batch_size]
                 logger.info(f"Processing batch {i//batch_size + 1} with {len(batch)} resumes")
                 
-                # Add a small delay between batches to stay under RPM limits
+                # Aggressive delay between batches (12 seconds) to stay well under RPM limits
                 if i > 0:
-                    await asyncio.sleep(2)
+                    logger.info("Waiting 12 seconds before next batch to respect API quota...")
+                    await asyncio.sleep(12)
                 
                 batch_results = await self._analyze_single_batch_with_retry(job_description, batch)
                 all_results.extend(batch_results)
@@ -62,7 +63,7 @@ class ResumeAnalyzer:
             for idx, result in enumerate(top_7):
                 result['rank'] = idx + 1
             
-            # Check if we have any matches (threshold: 40% for better feedback)
+            # Check if we have any matches (threshold: 40%)
             has_matches = any(result['score'] >= 40 for result in top_7)
             
             return {
@@ -76,8 +77,8 @@ class ResumeAnalyzer:
             logger.error(f"Error analyzing resumes: {e}")
             raise
     
-    async def _analyze_single_batch_with_retry(self, job_description: str, batch: List[Dict[str, str]], retries: int = 3) -> List[Dict[str, Any]]:
-        """Analyze a single batch with exponential backoff retry for 429 errors"""
+    async def _analyze_single_batch_with_retry(self, job_description: str, batch: List[Dict[str, str]], retries: int = 4) -> List[Dict[str, Any]]:
+        """Analyze a single batch with aggressive backoff retry for 429 errors"""
         for attempt in range(retries):
             try:
                 model = self._create_chat_session()
@@ -92,10 +93,19 @@ class ResumeAnalyzer:
                 return self._parse_batch_response(response.text, batch)
                 
             except Exception as e:
+                error_msg = str(e)
                 # Check for quota error (429)
-                if "429" in str(e) and attempt < retries - 1:
-                    wait_time = (2 ** attempt) * 5 # 5s, 10s backoff
-                    logger.warning(f"Quota hit (429), retrying in {wait_time}s (Attempt {attempt + 1}/{retries})")
+                if "429" in error_msg and attempt < retries - 1:
+                    # Default wait time is 30s, 60s, 90s...
+                    wait_time = (attempt + 1) * 30
+                    
+                    # Try to parse recommended wait time from error message if available
+                    import re
+                    match = re.search(r"retry in ([\d\.]+)s", error_msg)
+                    if match:
+                        wait_time = float(match.group(1)) + 5 # Add a buffer
+                    
+                    logger.warning(f"Quota hit (429), waiting {wait_time}s (Attempt {attempt + 1}/{retries})")
                     await asyncio.sleep(wait_time)
                     continue
                 
@@ -108,7 +118,7 @@ class ResumeAnalyzer:
                             'email': r.get('email', ''),
                             'phone': r.get('phone', ''),
                             'score': 0,
-                            'reasons': [f"Analysis failed after {retries} attempts: {str(e)[:100]}"]
+                            'reasons': [f"Analysis failed: {error_msg[:100]}"]
                         }
                         for r in batch
                     ]
